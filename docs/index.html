@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>海盗船内存接管助手 | Corsair Memory Takeover</title>
+  <meta name="description" content="检测海盗船 RGB 内存与主板软件的接入状态。提供华硕 Aura Sync、微星 Mystic Light 服务维护预览，以及技嘉 RGB Fusion 检测与接入指引。">
+  <meta name="robots" content="index,follow">
+  <meta name="theme-color" content="#14243d">
+  <link rel="canonical" href="https://bob-the-heater.github.io/corsair-memory-takeover/">
+  <link rel="alternate" hreflang="zh-CN" href="https://bob-the-heater.github.io/corsair-memory-takeover/">
+  <link rel="alternate" hreflang="en" href="https://bob-the-heater.github.io/corsair-memory-takeover/en/">
+  <link rel="alternate" hreflang="x-default" href="https://bob-the-heater.github.io/corsair-memory-takeover/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Corsair Memory Takeover">
+  <meta property="og:title" content="海盗船内存接管助手 | Corsair Memory Takeover">
+  <meta property="og:description" content="检测海盗船 RGB 内存与主板软件的接入状态。提供华硕 Aura Sync、微星 Mystic Light 服务维护预览，以及技嘉 RGB Fusion 检测与接入指引。">
+  <meta property="og:url" content="https://bob-the-heater.github.io/corsair-memory-takeover/">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="海盗船内存接管助手 | Corsair Memory Takeover">
+  <meta name="twitter:description" content="检测海盗船 RGB 内存与主板软件的接入状态。提供华硕 Aura Sync、微星 Mystic Light 服务维护预览，以及技嘉 RGB Fusion 检测与接入指引。">
+  <link rel="stylesheet" href="assets/site.css">
+  <link rel="sitemap" type="application/xml" href="https://bob-the-heater.github.io/corsair-memory-takeover/sitemap.xml">
+  <script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "Corsair Memory Takeover", "operatingSystem": "Windows x64", "applicationCategory": "UtilitiesApplication", "softwareVersion": "0.3.1", "inLanguage": "zh-CN", "url": "https://bob-the-heater.github.io/corsair-memory-takeover/", "downloadUrl": "https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.1", "description": "检测海盗船 RGB 内存与主板软件的接入状态。提供华硕 Aura Sync、微星 Mystic Light 服务维护预览，以及技嘉 RGB Fusion 检测与接入指引。", "license": "https://github.com/BoB-The-Heater/corsair-memory-takeover/blob/main/LICENSE"}</script>
+</head>
+<body>
+  <a class="skip" href="#main">跳到正文</a>
+  <header><div class="wrap top">
+    <a class="wordmark" href="./">Corsair Memory Takeover</a>
+    <nav aria-label="主导航"><a href="#support">支持范围</a><a href="#start">使用步骤</a><a href="#faq">常见问题</a><a class="language" href="en/">English</a></nav>
+  </div></header>
+  <main id="main" class="wrap">
+    <section class="hero">
+      <p class="eyebrow">Windows x64 · v0.3.1 · Preview</p>
+      <h1>海盗船内存接管助手</h1>
+      <p class="lead">检查官方软件的接入状态，维护已确认的服务。灯效由主板厂商软件控制。</p>
+      <div class="actions"><a class="button primary" href="https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.1">下载 Windows 版</a><a class="button secondary" href="https://github.com/BoB-The-Heater/corsair-memory-takeover">查看源码</a></div>
+      <p class="fine">.NET Framework 4.8 · 简体中文界面 · MIT</p>
+    </section>
+    <section id="support">
+      <h2>支持范围</h2>
+      <table><thead><tr><th scope="col">主板软件</th><th scope="col">当前功能</th></tr></thead><tbody><tr><th scope="row">ASUS Aura Sync</th><td>组件检测、已确认服务基线的维护（预览）</td></tr><tr><th scope="row">MSI Mystic Light</th><td>组件检测、已确认服务基线的维护（预览）</td></tr><tr><th scope="row">GIGABYTE RGB Fusion</th><td>检测与官方接入指引</td></tr><tr><th scope="row">其他品牌</th><td>检测与接入指引</td></tr></tbody></table>
+      <p class="notice">适配仍为预览，不能保证所有硬件兼容。服务运行不代表实际同步，需在官方软件中确认内存可控。</p>
+    </section>
+    <section id="start"><h2>使用步骤</h2><ol class="steps"><li><h3>下载并检测</h3><p>解压发行包，运行 CorsairTakeover.exe。首次检测无需管理员权限。</p></li><li><h3>完成官方接入</h3><p>按品牌指引安装组件、完成控制授权，并确认实体灯效跟随。</p></li><li><h3>启用服务维护</h3><p>华硕、微星用户检测通过后可启用维护，再检查重启和唤醒结果。</p></li></ol><a href="https://github.com/BoB-The-Heater/corsair-memory-takeover/blob/main/GUIDE.md">查看完整使用指南 →</a></section>
+    <section id="faq"><h2>常见问题</h2><details><summary>服务正常，内存仍不显示怎么办？</summary><p>检查官方插件、控制授权和厂商软件的设备扫描。助手不能补齐官方软件不支持的设备。</p></details><details><summary>如何关闭维护？</summary><p>使用工具中的「撤销」。只关闭窗口不会取消登录任务。</p></details><details><summary>检测信息会上传吗？</summary><p>程序没有报告上传功能。提交问题时请自行删除个人路径、序列号和设备标识。</p></details></section>
+  </main>
+  <footer><div class="wrap"><div class="footerlinks"><a href="https://github.com/BoB-The-Heater/corsair-memory-takeover/issues">问题反馈</a><a href="https://github.com/BoB-The-Heater/corsair-memory-takeover/blob/main/LICENSE">MIT 许可证</a><a href="sitemap.xml">Sitemap</a></div><p>独立项目，与各硬件厂商无隶属关系。</p></div></footer>
+</body>
+</html>

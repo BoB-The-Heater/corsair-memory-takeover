@@ -1,0 +1,9 @@
+2000-01-01 01:01:00 I svc.server: New client connected: "GCC.exe" ( "\\.\pipe\:pid:42\{synthetic}" )
+2000-01-01 01:01:01 I svc.lla: Detected module [1:1]: PN=SYNTHETIC-RAM; isCorsair=true; hasLightings=true
+2000-01-01 01:01:01 I svc.lla: Detected module [1:4]: PN=SYNTHETIC-RAM; isCorsair=true; hasLightings=true
+2000-01-01 01:01:02 W svc.lla: Byte write failed: dram=[1:0] offset=SMBSpeed
+2000-01-01 01:01:03 I svc.server.rp: Registered new client "GCC.exe" ( "\\.\pipe\:pid:42\{synthetic}" )
+2000-01-01 01:01:04 W svc.lla: Byte write failed: dram=[1:1] offset=SMBSpeed
+2000-01-01 01:01:04 W svc.lla: Byte write failed: dram=[1:4] offset=SMBSpeed
+2000-01-01 01:01:05 W svc.server.json: Error writing reply to client "GCC.exe" ( "\\.\pipe\:pid:42\{synthetic}" )
+2000-01-01 01:01:06 I svc: Stopping service: "CorsairDeviceControlService"
