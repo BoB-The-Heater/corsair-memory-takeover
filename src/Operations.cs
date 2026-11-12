@@ -11,9 +11,44 @@ namespace CorsairTakeover {
         public static string Name { get { return "CorsairTakeoverAssistant-"+StateStore.Sid; } }
         static dynamic Scheduler() { dynamic s=Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service")); s.Connect(); return s; }
         public static bool HasGccStartup(string exe) {
-            try { dynamic s=Scheduler(); dynamic t=s.GetFolder("\\").GetTask("GCC"); if(!(bool)t.Enabled) return false;
-                foreach(dynamic a in t.Definition.Actions) if((int)a.Type==0 && String.Equals(((string)a.Path).Trim('"'),exe,StringComparison.OrdinalIgnoreCase)) return true;
-            } catch { } return false;
+            object scheduler=null;
+            try {
+                scheduler=Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service"));
+                return ReadGccStartup(scheduler,exe);
+            } finally { ReleaseTaskObject(scheduler); }
+        }
+        static object TaskMember(object target,string name,BindingFlags flags,params object[] args) {
+            return target.GetType().InvokeMember(name,flags,null,target,args);
+        }
+        static void ReleaseTaskObject(object value) {
+            if(value!=null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value);
+        }
+        internal static bool ReadGccStartup(object scheduler,string exe) {
+            object folder=null,task=null,definition=null,actions=null;
+            try {
+                TaskMember(scheduler,"Connect",BindingFlags.InvokeMethod,Type.Missing,Type.Missing,Type.Missing,Type.Missing);
+                folder=TaskMember(scheduler,"GetFolder",BindingFlags.InvokeMethod,"\\");
+                try { task=TaskMember(folder,"GetTask",BindingFlags.InvokeMethod,"GCC"); }
+                catch(Exception ex) {
+                    Exception cause=ex is TargetInvocationException && ex.InnerException!=null ? ex.InnerException : ex;
+                    if((uint)cause.HResult==0x80070002) return false;
+                    throw;
+                }
+                if(!(bool)TaskMember(task,"Enabled",BindingFlags.GetProperty)) return false;
+                definition=TaskMember(task,"Definition",BindingFlags.GetProperty);
+                actions=TaskMember(definition,"Actions",BindingFlags.GetProperty);
+                int count=(int)TaskMember(actions,"Count",BindingFlags.GetProperty);
+                for(int index=1;index<=count;index++) {
+                    object action=TaskMember(actions,"Item",BindingFlags.GetProperty,index);
+                    try {
+                        if((int)TaskMember(action,"Type",BindingFlags.GetProperty)==0 &&
+                            String.Equals(((string)TaskMember(action,"Path",BindingFlags.GetProperty)).Trim('"'),exe,StringComparison.OrdinalIgnoreCase)) return true;
+                    } finally { ReleaseTaskObject(action); }
+                }
+                return false;
+            } finally {
+                ReleaseTaskObject(actions); ReleaseTaskObject(definition); ReleaseTaskObject(task); ReleaseTaskObject(folder);
+            }
         }
         public static bool Exists() { try { dynamic s=Scheduler(); s.GetFolder("\\").GetTask(Name); return true; } catch(Exception ex) { if((uint)ex.HResult==0x80070002 || (uint)ex.HResult==0x8004130F) return false; throw; } }
         public static void Register(string exe) {
@@ -51,6 +86,10 @@ namespace CorsairTakeover {
     public static class Operations {
         public static string Plan(Snapshot s) {
             if(NativePolicy.Supports(s.Brand)) return NativePolicy.Plan(s);
+            if(s.Brand=="GIGABYTE") {
+                if(!GigabyteRecovery.CanConnect(s)) return "当前组合仅提供检测与接入指引。\n"+GigabyteRecovery.ConnectionBlockReason(s);
+                return "手动连接适用于 B550 VISION D-P 与当前已验证的内存、软件组合。\n\n已连通时只确认当前连接；未连接时关闭并重新打开 GCC，重启 Corsair 设备服务，按需停止已验证的 iCUE 内存驱动。现有启动类型和开机设置均保留。\n\n启动后按新会话日志检查，确认完成立即结束，日志等待最多 38 秒。每次点击执行一次。";
+            }
             return "此品牌仅提供检测与接入指引，不执行自动恢复或启动配置修改。";
         }
         static void Guard(Snapshot s) {
@@ -74,7 +113,7 @@ namespace CorsairTakeover {
             var e=new Enrollment {
                 Schema=2,Brand=s.Brand,Enabled=false,OwnerSid=StateStore.Sid,
                 EnrolledUtc=DateTime.UtcNow.ToString("o"),Fingerprint=s.Fingerprint,TaskName=TaskControl.Name,
-                InstalledExe=Path.Combine(StateStore.Root,"CorsairTakeover-0.3.1-"+Probe.Hash(current).Substring(0,16)+".exe"),
+                InstalledExe=Path.Combine(StateStore.Root,"CorsairTakeover-0.3.2-"+Probe.Hash(current).Substring(0,16)+".exe"),
                 NativeConfirmedUtc=DateTime.UtcNow.ToString("o"),BaselineServices=s.NativeServices.Select(v=>v.Name).ToList()
             };
             if(!String.Equals(current,e.InstalledExe,StringComparison.OrdinalIgnoreCase)) {
@@ -107,7 +146,9 @@ namespace CorsairTakeover {
             return pending.Count==0 ? "已删除本工具启动任务并恢复本工具修改的设置。保留安装文件与记录；不会重启电脑。" : "已停止后台检查。部分设置被其他程序改变，已保留它们，详情见备份和记录。";
         }
         public static string Repair() {
-            Snapshot s=Probe.Scan(); Guard(s); StateStore.Prepare();
+            Snapshot s=Probe.Scan();
+            if(s.Brand=="GIGABYTE") return GigabyteRecovery.Connect(s);
+            Guard(s); StateStore.Prepare();
             return NativeRecovery.Run(s,StateStore.Load(),new WindowsServiceStarter());
         }
         public static string Reconnect(Snapshot s) {

@@ -53,7 +53,8 @@ namespace CorsairTakeover {
             if(!NativePolicy.Supports(s.Brand)) return;
             try {
                 using(var q=new ManagementObjectSearcher("SELECT Name,DisplayName,PathName,State,StartMode,StartName FROM Win32_Service"))
-                foreach(ManagementObject o in q.Get()) {
+                using(var results=q.Get())
+                foreach(ManagementObject o in results) using(o) {
                     string command=Probe.Text(o["PathName"]), path=Executable(command);
                     // Find relevant candidates even if their command line is ambiguous; never execute the fallback.
                     string file=path==null ? Path.GetFileName(Regex.Match(command,@"(?i)^\s*""?(.+?\.exe)").Groups[1].Value) : Path.GetFileName(path);

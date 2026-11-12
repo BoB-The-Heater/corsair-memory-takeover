@@ -48,7 +48,8 @@ namespace CorsairTakeover {
         NotifyIcon tray; Control dispatcher; int checking; DateTime lastEvent=DateTime.MinValue;
         public Watcher() {
             dispatcher=new Control(); IntPtr handle=dispatcher.Handle;
-            tray=new NotifyIcon { Icon=System.Drawing.SystemIcons.Application,Text="海盗船接管助手 · 等待检查",Visible=true };
+            watcherIcon=System.Drawing.Icon.ExtractAssociatedIcon(Assembly.GetExecutingAssembly().Location);
+            tray=new NotifyIcon { Icon=watcherIcon,Text="海盗船接管助手 · 等待检查",Visible=true };
             var menu=new ContextMenuStrip(); menu.Items.Add("打开接管助手",null,delegate { Open(); }); menu.Items.Add("立即检查",null,delegate { QueueCheck("用户检查",0); }); menu.Items.Add("退出本次后台检查",null,delegate { ExitThread(); }); tray.ContextMenuStrip=menu; tray.DoubleClick+=delegate { Open(); };
             SystemEvents.PowerModeChanged+=PowerChanged; QueueCheck("登录检查",15000);
         }
@@ -78,6 +79,7 @@ namespace CorsairTakeover {
             }
         }
         void Status(string value) { if(dispatcher.IsDisposed) return; try { dispatcher.BeginInvoke(new Action(delegate { tray.Text=value.Length>60?value.Substring(0,60):value; })); } catch { } }
-        protected override void ExitThreadCore() { SystemEvents.PowerModeChanged-=PowerChanged; tray.Visible=false; tray.Dispose(); dispatcher.Dispose(); base.ExitThreadCore(); }
+        System.Drawing.Icon watcherIcon;
+        protected override void ExitThreadCore() { SystemEvents.PowerModeChanged-=PowerChanged; tray.Visible=false; if(tray.ContextMenuStrip!=null) tray.ContextMenuStrip.Dispose(); tray.Dispose(); watcherIcon.Dispose(); dispatcher.Dispose(); base.ExitThreadCore(); }
     }
 }

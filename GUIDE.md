@@ -2,15 +2,31 @@
 
 ## 开始
 
-需要 Windows x64 和 .NET Framework 4.8。解压发行包后运行 `CorsairTakeover.exe`，查看「接管概览」「检测详情」「接入与帮助」。
+需要 Windows x64 和 .NET Framework 4.8。解压后运行 `CorsairTakeover.exe`，查看「概览」「检测详情」「帮助」「设置」。
 
-`F5` 重新检测，`Alt + 1 / 2 / 3` 切换页面。
+`F5` 重新检测，`Alt + 1 / 2 / 3 / 4` 切换页面。
 
 ## 官方接入
 
 - **华硕**：安装 Armoury Crate 和 Corsair RGB Memory Plugin for ASUS Aura Sync。若使用 iCUE，通过官方界面开放第三方控制；重新扫描后确认内存可见、灯效跟随。[官方步骤](https://help.corsair.com/hc/en-us/articles/31086864483729-Memory-Enable-RGB-control-through-third-party-software-Armoury-Crate)
 - **微星**：安装 iCUE、MSI Center 和 Mystic Light，按提示完成更新与重启，再确认内存可控。Dragon Center、MSI Center S 不在当前适配范围。[官方步骤](https://help.corsair.com/hc/en-us/articles/14649496854029-RAM-How-To-Enable-RGB-Control-with-MSI-Mystic-Light-for-DRAM)
-- **技嘉及其他品牌**：本工具提供检测和接入指引，请在厂商软件中完成识别与同步设置。
+- **技嘉**：按官方说明完成 GCC 与海盗船组件安装。匹配下面的适配条件时可使用一次性「连接内存」。
+- **其他品牌**：本工具提供检测和接入指引，请在厂商软件中完成识别与同步设置。
+
+## 技嘉按需连接
+
+当前仅适配 B550 VISION D-P、两条 CMT32GX4M2D3600C18、GCC 26.03.26.01、Storage Library 26.04.27.02、设备服务 1.9.15、iCUE 5.46.67 与 Windows 10.0.28000 系列组合。条件不同会说明原因，不开放未验证组合的硬件操作。
+
+点击「连接内存」后先重新检测和校验。已经确认连接时不重启；需要恢复时关闭并重新打开 GCC、重启 Corsair 设备服务、按需停止已验证的 iCUE 内存驱动。保留原启动类型，不安装技嘉后台维护任务。iCUE 运行或有其他海盗船 USB 设备时不执行此流程。
+
+启动后的新会话日志确认最多等待 38 秒，每 500 毫秒检查一次，确认后立即结束。系统服务与进程的启停耗时另计。错误、超时和信息缺失会明确提示，不自动重复重启。日志正常仍需在官方软件中核实实体灯效。
+
+## 窗口与退出
+
+- 默认显示任务栏入口；勾选「隐藏任务栏入口」并保存后，使用系统托盘图标双击打开窗口，右键退出。
+- 默认开启「连接成功后静默退出」。主动执行技嘉连接且再次检测确认成功后，助手关闭本次窗口与托盘，不弹成功提示；普通启动、重新检测、失败和状态不明时不自动退出。关闭此选项可保留结果窗口。
+- GUI 空闲时不循环扫描，不另起常驻进程。关闭助手不会关闭官方软件，也不会取消已经启用的华硕／微星登录和唤醒维护。
+- 两个选项保存到 `%LOCALAPPDATA%\CorsairTakeoverAssistant\preferences.json`。保存失败会提示并保留原文件；读取损坏配置时会显示错误，保留任务栏并关闭自动退出，待在设置中重新保存。
 
 ## 服务维护（华硕 / 微星预览）
 

@@ -12,9 +12,21 @@ namespace CorsairTakeover {
             v.PrimaryText="查看检测详情"; v.PrimaryAction="details";
             v.NextTitle="先确认当前接管状态"; v.NextBody="在官方软件中查看内存是否出现，并确认实体灯效跟随。";
             if(s.Errors.Count>0) { v.Title="检测信息还不完整"; v.Tone="warning"; v.Detail="部分信息读取失败，可在检测详情中查看原因。"; v.NextTitle="先补齐检测信息"; v.NextBody="这次检测没有确认完整的接管环境。重新检测后，再进行维护操作。"; v.PrimaryText="重新检测"; v.PrimaryAction="scan"; return v; }
+            if(s.Brand=="GIGABYTE") {
+                bool connected=GigabyteRecovery.IsConnected(s),canConnect=GigabyteRecovery.CanConnect(s);
+                v.Title=connected?"内存连接已确认":"内存连接待确认";
+                v.Tone=connected?"success":"neutral";
+                v.Detail=connected?"当前 GCC 会话已连接全部内存，未发现写入或通信错误。":s.HealthDetail;
+                v.Evidence=connected?"当前会话连接已确认":"当前会话待确认";
+                v.NextTitle=canConnect?(connected?"连接已就绪":"连接当前内存"):"按当前组合检查接入";
+                v.NextBody=canConnect?(connected?"点击连接可重新确认当前状态，已连通时立即结束。":"本次操作会检查 GCC、设备服务与当前会话日志，确认连接后立即结束等待。") : GigabyteRecovery.ConnectionBlockReason(s);
+                v.PrimaryText=canConnect?"连接内存":"查看接入步骤";
+                v.PrimaryAction=canConnect?"repair":"help";
+                return v;
+            }
             if(s.AssistantEnabled && (s.AssistantState??"").Contains("暂停")) { v.Title="环境有变化，维护已暂停"; v.Tone="warning"; v.NextTitle="重新核实官方接管"; v.NextBody="软件或硬件发生变化。查看检测详情，完成官方接管测试，再撤销旧设置并重新启用。"; return v; }
             if(!NativePolicy.Supports(s.Brand)) {
-                v.Title=s.Health; v.Detail=s.HealthDetail; v.Tone=s.Health=="接管链路正常"?"success":"neutral";
+                v.Title=s.Health; v.Detail=s.HealthDetail; v.Tone="neutral";
                 v.Evidence="当前仅检测"; v.NextTitle="在官方软件中完成接入";
                 v.NextBody="此品牌提供检测与接入指引。请在官方软件中检查内存识别和灯效。";
                 v.PrimaryText="查看接入步骤"; v.PrimaryAction="help"; return v;

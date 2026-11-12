@@ -17,12 +17,27 @@ namespace CorsairTakeover {
         }
     }
     public sealed class WindowsServiceStarter : IServiceStarter {
+        internal static string ServicePath(string name) {
+            return "Win32_Service.Name=\""+name.Replace("\\","\\\\").Replace("\"","\\\"")+"\"";
+        }
+        internal static NativeService ReadCurrentService(string name) {
+            using(var service=new ManagementObject(ServicePath(name))) {
+                try { service.Get(); }
+                catch(ManagementException ex) {
+                    if(ex.ErrorCode==ManagementStatus.NotFound) return null;
+                    throw;
+                }
+                return new NativeService { Name=Probe.Text(service["Name"]),Command=Probe.Text(service["PathName"]),StartMode=Probe.Text(service["StartMode"]),Account=Probe.Text(service["StartName"]) };
+            }
+        }
+        internal static bool ConfigurationMatches(NativeService expected,NativeService actual) {
+            return actual!=null && actual.Name==expected.Name && actual.Command==expected.Command &&
+                actual.StartMode=="Auto" && actual.Account==expected.Account;
+        }
         public void StartStopped(NativeService expected) {
             // Read again immediately before SCM Start; never stop or restart running services.
-            NativeService actual=null;
-            using(var q=new ManagementObjectSearcher("SELECT Name,PathName,StartMode,StartName FROM Win32_Service"))
-            foreach(ManagementObject o in q.Get()) if(Probe.Text(o["Name"])==expected.Name) actual=new NativeService{Name=expected.Name,Command=Probe.Text(o["PathName"]),StartMode=Probe.Text(o["StartMode"]),Account=Probe.Text(o["StartName"])};
-            if(actual==null || actual.Command!=expected.Command || actual.StartMode!="Auto" || actual.Account!=expected.Account || !NativeProbe.ProtectedLocation(expected.Path) || !SignedFiles.Valid(expected.Path) || Probe.Hash(expected.Path)!=expected.Hash)
+            NativeService actual=ReadCurrentService(expected.Name);
+            if(!ConfigurationMatches(expected,actual) || !NativeProbe.ProtectedLocation(expected.Path) || !SignedFiles.Valid(expected.Path) || Probe.Hash(expected.Path)!=expected.Hash)
                 throw new InvalidOperationException("服务执行前校验失败："+expected.Name);
             using(var controller=new ServiceController(expected.Name)) {
                 controller.Refresh(); if(controller.Status==ServiceControllerStatus.Running) return;

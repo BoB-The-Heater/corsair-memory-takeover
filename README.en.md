@@ -2,7 +2,7 @@
 
 Check Corsair RGB RAM integration with motherboard software and maintain confirmed vendor services. Lighting effects stay in the official software.
 
-[Download](https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.1) · [Website](https://bob-the-heater.github.io/corsair-memory-takeover/en/) · [简体中文](README.md)
+[Download v0.3.2 preview](https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.2) · [Website](https://bob-the-heater.github.io/corsair-memory-takeover/en/) · [简体中文](README.md)
 
 ## Support
 
@@ -10,7 +10,7 @@ Check Corsair RGB RAM integration with motherboard software and maintain confirm
 | --- | --- |
 | ASUS Aura Sync | Component detection and confirmed service maintenance (preview) |
 | MSI Mystic Light | Component detection and confirmed service maintenance (preview) |
-| GIGABYTE RGB Fusion | Detection and official setup guidance |
+| GIGABYTE RGB Fusion | Detection and one-shot manual connection for the explicitly supported configuration (preview) |
 | Other brands | Detection and setup guidance |
 
 Adapters are previews. Compatibility is not guaranteed; running services do not prove physical RGB synchronization.
@@ -20,6 +20,10 @@ Adapters are previews. Compatibility is not guaranteed; running services do not 
 1. Download the Windows x64 ZIP, extract it and run `CorsairTakeover.exe`.
 2. Follow the brand setup guide to install official components and approve control.
 3. ASUS/MSI users can enable maintenance after confirming physical lighting control. Use Undo to remove maintenance.
+4. On the supported GIGABYTE configuration, manual connection returns immediately if already connected; otherwise it waits for verified evidence from the new GCC session instead of fixed 20/18-second delays. Exact hardware and version requirements are in the setup guide.
+5. Settings can hide the taskbar entry while retaining a tray entry. Exit after a confirmed manual GIGABYTE connection is enabled by default; normal scans, failures and incomplete evidence do not close the app. The GUI does not poll while idle.
+
+v0.3.2 includes a redesigned native interface and embedded application icons. Simulated recovery, settings persistence and offscreen UI checks passed. Actual service/driver recovery, taskbar/tray interaction and physical lighting still require hardware validation.
 
 Requires .NET Framework 4.8. The UI is Simplified Chinese. The first scan needs no elevation; system changes request administrator rights. Binaries are unsigned; release checksums are provided.
 

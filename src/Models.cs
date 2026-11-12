@@ -62,14 +62,14 @@ namespace CorsairTakeover {
         public static void Evaluate(Snapshot s) {
             if (NativePolicy.Supports(s.Brand)) { NativePolicy.Evaluate(s); return; }
             s.RuleEligible = false;
-            s.RuleReason = "此品牌当前提供检测与官方接入指引，不执行自动恢复或启动配置修改。";
+            s.RuleReason = s.Brand=="GIGABYTE" ? GigabyteRecovery.ConnectionBlockReason(s)??"当前组合支持手动连接；保留现有启动设置。" : "此品牌当前提供检测与官方接入指引，不执行自动恢复或启动配置修改。";
 
             if (s.Ram.Count == 0 || !s.Ram.Any(IsCorsair)) { s.Health = "未识别海盗船内存"; s.HealthDetail = "系统信息中没有匹配型号；不会尝试修复。"; }
             else if (s.Brand != "GIGABYTE") { s.Health = "需要按品牌检查接管条件"; s.HealthDetail = "检测到内存不等于官方软件已接管。请查看接入指引。"; }
             else if (s.GccPid == 0) { s.Health = "GCC 未运行"; s.HealthDetail = "没有活动的 GCC 会话；后台检查不会擅自重开已退出的软件。"; }
             else if (!s.Evidence.CurrentSession) { s.Health = "等待接管证据"; s.HealthDetail = "没有当前 GCC 进程启动后的海盗船连接日志。服务停止或手动启动本身不表示故障。"; }
             else if (s.Evidence.InstalledWriteFailures > 0 || s.Evidence.PipeErrors > 0) { s.Health = "发现当前连接异常"; s.HealthDetail = "当前 GCC 会话出现已安装内存写入失败或通信连接提前关闭。"; }
-            else if (s.Evidence.Connected && s.Evidence.Modules == s.Ram.Count && s.DcsState == "Running") { s.Health = "接管链路正常"; s.HealthDetail = "当前日志显示内存已连接 GCC；请在官方软件中核实灯效。"; }
+            else if (GigabyteRecovery.IsConnected(s)) { s.Health = "接管链路正常"; s.HealthDetail = "当前日志显示内存已连接 GCC；请在官方软件中核实灯效。"; }
             else { s.Health = "接管状态未确认"; s.HealthDetail = "现有证据不足以判断已接管；不会盲目重启服务。"; }
         }
         public static bool CanAutoRepair(Snapshot s, Enrollment e, DateTime utc) {
@@ -82,6 +82,9 @@ namespace CorsairTakeover {
         }
     }
     public static class LogParser {
+        public static LogEvidence Parse(IEnumerable<string> chunks,int pid,DateTime bootUtc,DateTime processStartUtc) {
+            return Parse(String.Join("\n",chunks),pid,bootUtc,processStartUtc);
+        }
         public static LogEvidence Parse(string text, int pid, DateTime bootUtc, DateTime processStartUtc) {
             LogEvidence e = new LogEvidence();
             if (pid <= 0) return e;
