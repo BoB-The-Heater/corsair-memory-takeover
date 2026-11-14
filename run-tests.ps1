@@ -1,9 +1,9 @@
-param([ValidateSet('core','ui','preferences','rules')][string]$Suite = 'core')
+param([ValidateSet('core','ui','preferences','rules','startup')][string]$Suite = 'core')
 $ErrorActionPreference = 'Stop'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $testDirectory = Join-Path $PSScriptRoot 'test-output'
 New-Item -ItemType Directory -Path $testDirectory -Force | Out-Null
-$testName = if ($Suite -eq 'ui') { 'UiTests' } elseif ($Suite -eq 'preferences') { 'PreferencesTests' } else { 'CoreTests' }
+$testName = if ($Suite -eq 'ui') { 'UiTests' } elseif ($Suite -eq 'preferences') { 'PreferencesTests' } elseif ($Suite -eq 'startup') { 'StartupTests' } else { 'CoreTests' }
 $main = if ($Suite -eq 'core' -or $Suite -eq 'rules') { 'Tests' } else { $testName }
 $testBinary = Join-Path $testDirectory ($testName + '.exe')
 $sources = @(Get-ChildItem -LiteralPath (Join-Path $PSScriptRoot 'src') -Filter '*.cs' | ForEach-Object FullName)

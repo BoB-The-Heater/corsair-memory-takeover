@@ -6,13 +6,21 @@ using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Security.Principal;
 using Microsoft.Win32;
 
 namespace CorsairTakeover {
     public static class Program {
-        [STAThread] public static int Main(string[] args) {
-            Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
+        internal static bool StartupIdentityMatches(string initiatingSid,string processSid) {
+            if(initiatingSid==null || !initiatingSid.StartsWith("S-1-",StringComparison.Ordinal)) return false;
             try {
+                var identity=new SecurityIdentifier(initiatingSid);
+                return identity.Value==initiatingSid && initiatingSid==processSid;
+            } catch(ArgumentException) { return false; }
+        }
+        [STAThread] public static int Main(string[] args) {
+            try {
+                if(args.Length==1 && args[0]=="--startup-connect") return StartupConnection.Run();
                 if(args.Length==2 && (args[0]=="--scan" || args[0]=="--plan" || args[0]=="--preflight")) {
                     if(File.Exists(args[1])) throw new IOException("输出文件已存在，拒绝覆盖。");
                     Snapshot s=Probe.Scan(); string value=args[0]=="--scan"?Json.Write(s):args[0]=="--plan"?Operations.Plan(s):Json.Write(new{Brand=s.Brand,Rule=s.RuleEligible,Reason=s.RuleReason,Fingerprint=s.Fingerprint,NativeServices=s.NativeServices,Requirements=s.Requirements,CanEnrollNative=NativePolicy.Supports(s.Brand)&&NativePolicy.CanEnroll(s),GccSigned=File.Exists(s.GccPath)&&SignedFiles.Valid(s.GccPath),DcsSigned=File.Exists(Path.Combine(Probe.DcsDir,"CorsairDeviceControlService.exe"))&&SignedFiles.Valid(Path.Combine(Probe.DcsDir,"CorsairDeviceControlService.exe")),TaskAvailable=s.GccAutostart,StateExists=File.Exists(StateStore.StateFile)});
@@ -20,22 +28,27 @@ namespace CorsairTakeover {
                 }
                 if(args.Length==1 && args[0]=="--watch") {
                     if(!StateStore.Admin) return 2; StateStore.Prepare(); var e=StateStore.Load(); if(e==null||!e.Enabled||e.OwnerSid!=StateStore.Sid) return 3;
+                    Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
                     using(var mutex=new Mutex(false,"Local\\CorsairTakeoverWatch-"+StateStore.Sid)) {
                         bool held=false; try { held=mutex.WaitOne(0); } catch(AbandonedMutexException) { held=true; }
                         if(!held) return 0; try { Application.Run(new Watcher()); } finally { mutex.ReleaseMutex(); }
                     } return 0;
                 }
                 bool confirmedEnable=args.Length==2 && args[0]=="--enable-confirmed" && System.Text.RegularExpressions.Regex.IsMatch(args[1],"^[A-Fa-f0-9]{64}$");
-                if(confirmedEnable || (args.Length==1 && (args[0]=="--enable"||args[0]=="--repair"||args[0]=="--restore"))) {
+                bool confirmedStartup=args.Length==3 && args[0]=="--startup-enable-confirmed" && System.Text.RegularExpressions.Regex.IsMatch(args[1],"^[A-Fa-f0-9]{64}$");
+                bool disableStartup=args.Length==2 && args[0]=="--startup-disable";
+                if((confirmedStartup || disableStartup) && !StartupIdentityMatches(args[args.Length-1],StateStore.Sid)) return 4;
+                if(confirmedEnable || confirmedStartup || disableStartup || (args.Length==1 && (args[0]=="--enable"||args[0]=="--repair"||args[0]=="--restore"))) {
                     if(!StateStore.Admin) return 2; StateStore.Prepare(); bool success=false; string message;
                     using(var mutex=new Mutex(false,"Local\\CorsairTakeoverOperation-"+StateStore.Sid)) {
                         bool held=false; try { held=mutex.WaitOne(2000); } catch(AbandonedMutexException) { held=true; }
                         if(!held) { message="另一个恢复操作正在执行，请稍后重试。"; }
-                        else { try { message=confirmedEnable?Operations.Enable(args[1]):args[0]=="--enable"?Operations.Enable():args[0]=="--repair"?Operations.Repair():Operations.Restore(); success=true; } catch(Exception ex) { message=ex.Message; StateStore.Audit("操作未完成："+ex.ToString()); } finally { mutex.ReleaseMutex(); } }
+                        else { try { message=confirmedStartup?StartupConnection.Enable(args[1]):disableStartup?StartupConnection.Disable():confirmedEnable?Operations.Enable(args[1]):args[0]=="--enable"?Operations.Enable():args[0]=="--repair"?Operations.Repair():Operations.Restore(); success=true; } catch(Exception ex) { message=ex.Message; StateStore.Audit("操作未完成："+ex.ToString()); } finally { mutex.ReleaseMutex(); } }
                     }
                     File.WriteAllText(Path.Combine(StateStore.Root,"last-result-"+StateStore.Sid+".json"),Json.Write(new OperationResult{Success=success,Message=message,AtUtc=DateTime.UtcNow.ToString("o")}),Encoding.UTF8); return success?0:1;
                 }
                 if(args.Length!=0) return 2;
+                Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm()); return 0;
             } catch(Exception ex) {
                 if(args.Length==0) MessageBox.Show(ex.Message,"接管助手未能启动");

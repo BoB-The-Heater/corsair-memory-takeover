@@ -123,16 +123,20 @@ namespace CorsairTakeover {
             if(!value&&presentation!=null&&presentation.PrimaryAction=="scan") primary.Enabled=true;
             repair.Enabled=ready&&(native?current.RuleEligible&&current.NativeConfirmed:GigabyteRecovery.CanConnect(current));
             export.Enabled=!value&&current!=null; planButton.Enabled=!value&&current!=null;
+            UpdateLoginButtons();
             if(value) { undo.Enabled=false; return; }
             bool canUndo=false; try { var e=StateStore.Load(); canUndo=e!=null&&(e.Enabled||e.Changes.Count>0); } catch { canUndo=File.Exists(StateStore.StateFile); }
             undo.Visible=native||canUndo; undo.Enabled=!value&&canUndo; tips.SetToolTip(undo,canUndo?"停止后台维护，撤销本工具修改的设置。":"当前没有需要撤销的维护设置。");
         }
         async Task RefreshSnapshot() {
             if(busy||IsDisposed||Disposing) return; SetBusy(true); var timer=Stopwatch.StartNew(); footer.Text="正在读取硬件、官方组件与当前会话…";
-            try { var result=await Task.Run(()=>Probe.Scan()); if(IsDisposed||Disposing) return; current=result; Render(); observed.Text="最近检测 "+DateTime.Now.ToString("HH:mm:ss")+" · 耗时 "+timer.Elapsed.TotalSeconds.ToString("0.00")+" 秒"; }
-            catch(Exception ex) {
+            try {
+              try { var result=await Task.Run(()=>Probe.Scan()); if(IsDisposed||Disposing) return; current=result; Render(); observed.Text="最近检测 "+DateTime.Now.ToString("HH:mm:ss")+" · 耗时 "+timer.Elapsed.TotalSeconds.ToString("0.00")+" 秒"; }
+              catch(Exception ex) {
                 if(IsDisposed||Disposing) return; current=null; Render(); health.Text="检测未完成"; healthDetail.Text=ex.Message; health.ForeColor=Color.FromArgb(153,98,21); statusIcon.Text="\uE7BA"; statusIcon.ForeColor=health.ForeColor;
                 presentation=new UiState {PrimaryAction="scan",PrimaryText="重新检测"}; primary.Text="重新检测"; nextTitle.Text="先完成一次检测"; nextBody.Text="本次读取失败，尚不能确认连接状态。"; footer.Text="检测失败："+ex.Message;
+              }
+              await RefreshLoginStatus();
             } finally { SetBusy(false); }
         }
         void Render() {
@@ -175,7 +179,7 @@ namespace CorsairTakeover {
                 AddCheck("iCUE 状态",s.IcueRunning?"运行中":"未运行","此品牌适配保留 iCUE 原有设置。");
                 AddCheck("接管确认记录",s.NativeConfirmed?"已保存":"尚未确认",s.NativeConfirmed?"用户确认时间（UTC）："+s.NativeConfirmedUtc:"先在官方软件确认内存能跟随，再启用持久维护。");
             } else if(s.Brand=="GIGABYTE") {
-                AddCheck("GCC 会话",s.GccPid>0?"正在运行":"未运行",s.GccPid>0?"当前进程 PID "+s.GccPid:"尚无活动会话。后台检查不会重新打开已退出的软件。");
+                AddCheck("GCC 会话",s.GccPid>0?"正在运行":"未运行",s.GccPid>0?"当前进程 PID "+s.GccPid:"尚无活动会话。连接流程会按已确认配置启动 GCC。");
                 AddCheck("Corsair 设备服务",ServiceState(s.DcsState),"按需启动或暂时停止本身不代表故障。");
                 AddCheck("当前连接日志",s.Evidence.CurrentSession?"已匹配当前进程":"尚未确认",s.Evidence.CurrentSession?"模块 "+s.Evidence.Modules+"；内存写入错误 "+s.Evidence.InstalledWriteFailures+"；通信错误 "+s.Evidence.PipeErrors:"不使用旧进程或上次开机的日志判断当前状态。");
                 AddCheck("iCUE 状态",s.IcueRunning?"运行中":"未运行","iCUE 运行时不执行技嘉连接，避免控制冲突。"); AddCheck("GCC 开机任务",s.GccAutostart?"已启用":"尚未确认","保留厂商原有启动任务。");
@@ -193,7 +197,7 @@ namespace CorsairTakeover {
             }
         }
         async Task Action(string command) {
-            if(busy||current==null) return;
+            if(busy||(current==null&&command!="--startup-disable")) return;
             bool connecting=command=="--repair"&&current.Brand=="GIGABYTE";
             if(connecting&&MessageBox.Show(this,Operations.Plan(current)+"\n\n现在执行一次连接？","连接内存",MessageBoxButtons.YesNo,MessageBoxIcon.Question,MessageBoxDefaultButton.Button2)!=DialogResult.Yes) return;
             if(command=="--enable"&&NativePolicy.Supports(current.Brand)) {
@@ -203,10 +207,13 @@ namespace CorsairTakeover {
             SetBusy(true); scan.Text="操作中…"; footer.Text="正在执行，Windows 可能请求管理员权限…";
             bool succeeded=false; string completionMessage=null;
             try { string resultPath=Path.Combine(StateStore.Root,"last-result-"+StateStore.Sid+".json"); DateTime started=DateTime.UtcNow;
-                using(var p=Process.Start(new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,command){UseShellExecute=true,Verb="runas",WindowStyle=ProcessWindowStyle.Hidden})) {
+                bool startupSetting=command.StartsWith("--startup-enable-confirmed ",StringComparison.Ordinal)||command=="--startup-disable";
+                string arguments=startupSetting?command+" "+StateStore.Sid:command;
+                using(var p=Process.Start(new ProcessStartInfo(Assembly.GetExecutingAssembly().Location,arguments){UseShellExecute=true,Verb="runas",WindowStyle=ProcessWindowStyle.Hidden})) {
                     var elapsed=Stopwatch.StartNew(); using(var progress=new System.Windows.Forms.Timer {Interval=1000}) { progress.Tick+=delegate { if(!IsDisposed&&!Disposing) footer.Text="正在等待"+(connecting?"本次连接确认":"操作完成")+" · 已用 "+(int)elapsed.Elapsed.TotalSeconds+" 秒"; }; progress.Start(); await Task.Run(()=>p.WaitForExit()); progress.Stop(); }
                     if(IsDisposed||Disposing) return;
                     succeeded=p.ExitCode==0; completionMessage=succeeded?"操作完成。":"操作未完成，请查看检测结果。";
+                    if(startupSetting&&p.ExitCode==4) completionMessage="管理员授权使用了不同的 Windows 账户，未更改自动连接。请使用当前登录账户的管理员权限；此版本不支持通过另一账户登记。";
                     if(File.Exists(resultPath)&&File.GetLastWriteTimeUtc(resultPath)>=started) {
                         var result=Json.Read<OperationResult>(File.ReadAllText(resultPath));
                         if(result==null||result.Success!=succeeded) throw new InvalidDataException("操作结果与退出状态不一致，请重新检测。");

@@ -113,7 +113,7 @@ namespace CorsairTakeover {
             var e=new Enrollment {
                 Schema=2,Brand=s.Brand,Enabled=false,OwnerSid=StateStore.Sid,
                 EnrolledUtc=DateTime.UtcNow.ToString("o"),Fingerprint=s.Fingerprint,TaskName=TaskControl.Name,
-                InstalledExe=Path.Combine(StateStore.Root,"CorsairTakeover-0.3.2-"+Probe.Hash(current).Substring(0,16)+".exe"),
+                InstalledExe=Path.Combine(StateStore.Root,"CorsairTakeover-0.3.3-"+Probe.Hash(current).Substring(0,16)+".exe"),
                 NativeConfirmedUtc=DateTime.UtcNow.ToString("o"),BaselineServices=s.NativeServices.Select(v=>v.Name).ToList()
             };
             if(!String.Equals(current,e.InstalledExe,StringComparison.OrdinalIgnoreCase)) {

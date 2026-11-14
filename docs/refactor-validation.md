@@ -112,6 +112,26 @@
 - 发布提交采用 GitHub 官方支持的 `[skip ci]` 标记以复用本地证据，未修改 workflow、仓库安全设置或所需检查。没有把跳过云端检查记为通过。
 - 发布审查未发现凭据、用户标识或真实机器报告进入源码清单；PRD 本机绝对路径已移除。临时发布脚本、原始检测与验证产物保持忽略。
 
+## v0.3.3 登录自动连接修复
+
+2026-11-14，用户报告不会开机自启动，并选择登录后自动连接、确认成功后静默退出。根因是 v0.3.2 仅恢复手动连接，没有技嘉登录入口。新增独立的当前用户登录任务，延迟 25 秒、每次登录执行一次，完成后退出，不增加 watcher、唤醒行为、任务重试或运行时模型请求。
+
+设置页提供开启、关闭、实际登记状态和上次结果。登记将当前构建复制到受保护目录，以程序哈希、组件指纹和当前 SID 绑定任务；同名外来任务拒绝覆盖。组件变化、读取错误或日志失败不报告成功。已确认归属的残留任务、安装文件缺失或结果损坏仍保留关闭入口，干净关闭后可重新开启。跨账户提权在写入前拒绝。
+
+本批选择本地验证，未运行云 CI：
+
+- `run-tests.ps1 -Suite startup` 最终 69 项通过。涵盖健康零恢复、至多一次连接、基线漂移、任务/程序身份、配置读回、启用回滚、关闭失败、重新开启、损坏状态清理及用户 SID。测试为合成数据，由后端代理定点执行，主代理复用结果。
+- `run-tests.ps1 -Suite ui` 的 35 项通过，包括新增开启/关闭/未知/残留任务/忙态分支及既有设置。首次 UI fixture 使用了不匹配的驱动名称，按真实识别契约修正 fixture 后通过；未放宽生产门限。
+- 使用真实 Windows Task Scheduler COM 创建内存中的未注册任务定义，调用生产配置/描述/校验方法成功；没有 Register、Run、Delete。真实 `ReadStatus` 返回未开启。首次只读检查复现缺任务返回 `FileNotFoundException`，修复仅 `GetTask` 的 `0x80070002` 映射后通过；其他读取错误不吞掉。
+- 最终 EXE 的开启/关闭入口在当前非管理员令牌下分别退出 2；不同用户 SID 退出 4，未显示窗口或执行系统写入。此前成功的连接、偏好、规则、采集测试输入未变，直接复用，不重复整套扫描或性能对照。
+- 两种实际控件客户区 1160×800、960×680 的设置页离屏预览已检查，小窗口底部通过控件滚动验证可达；未调用 Form.Show、Application.Run、真实鼠标键盘或创建桌面托盘。预览只证明实际控件布局，不代表桌面交互与 DPI 验收。
+- 系统 .NET Framework 正式构建成功，`git diff --check` 通过。EXE 172032 bytes（168 KiB），产品版本 0.3.3-preview，SHA-256 `78DAE8F434D913E8E1F7E82FFA186A788EC893B10C760D3B82400F4858F146EC`。比 v0.3.2 增加 34816 bytes；未实现二进制缩小，无新增第三方运行时。
+- 交付 ZIP 为 `CorsairMemoryTakeover-v0.3.3-win-x64.zip`，85080 bytes，SHA-256 `179DDE2087793B682F4455361C422370BFA2F18B0D88CFB5D6BB56C0AAE1CD87`。归档只含 EXE、GUIDE、LICENSE 与 EXE 校验文件；归档内程序与最终构建哈希一致。外置校验文件同时包含 ZIP 和 EXE 两行。临时诊断、原生读数、SID 和渲染预览均不纳入。
+
+本机登记状态与实际重启登录需另列证据；上述只读、合成与离屏检查不证明已启用或硬件恢复成功。当前会话非管理员，未自行触发 UAC 或真实服务/驱动启停。真实跨账户 UAC、登录触发、硬件恢复耗时及实体灯效未验证。
+
+接口依据：[TaskFolder.RegisterTaskDefinition](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskfolder-registertaskdefinition)、[Task Scheduler 安全上下文](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks)、[UAC 身份与凭据提示](https://learn.microsoft.com/windows/security/identity-protection/user-account-control/how-user-account-control-works)。
+
 ## 一手接口依据（链接）
 
 - [ServiceController.GetDevices](https://learn.microsoft.com/en-us/dotnet/api/system.serviceprocess.servicecontroller.getdevices?view=netframework-4.8)
