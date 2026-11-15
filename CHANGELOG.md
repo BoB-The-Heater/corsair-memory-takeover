@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.4 (preview) — 2026-11-15
+
+- Fixed logon recovery interrupting an existing GCC session while it was still initializing, which could cause service control timeouts and delay synchronization.
+- Observe an initializing session before recovery. A naturally completed connection exits without restarting GCC or services, after a full identity and component recheck.
+- Retained the 25-second logon trigger and existing 38-second connection observation budget. A timeout is rechecked before at most one recovery; errors and changed identities never become success.
+- Update the enrolled logon executable to use this fix. Boot-to-color timing still requires a real subsequent logon; local read-only and synthetic evidence cannot prove physical lighting latency.
+
 ## 0.3.3 (preview) — 2026-11-14
 
 - Added an explicit GIGABYTE logon connection setting; v0.3.2 only provided manual connection.

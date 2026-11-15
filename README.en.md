@@ -2,7 +2,7 @@
 
 Check Corsair RGB RAM integration with motherboard software and maintain confirmed vendor services. Lighting effects stay in the official software.
 
-[Download v0.3.3 preview](https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.3) · [Website](https://bob-the-heater.github.io/corsair-memory-takeover/en/) · [简体中文](README.md)
+[Download v0.3.4 preview](https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.4) · [Website](https://bob-the-heater.github.io/corsair-memory-takeover/en/) · [简体中文](README.md)
 
 ## Support
 
@@ -25,7 +25,7 @@ Adapters are previews. Compatibility is not guaranteed; running services do not 
 
 6. Enable GIGABYTE logon connection in Settings with one administrator approval. The current user's logon task checks after 25 seconds, performs at most one connection attempt and exits. An already healthy connection needs no restart. Settings displays the last result and provides the disable action; closing the GUI does not disable the task.
 
-v0.3.3 adds explicit logon enrollment with a protected executable and component baseline. It adds no resident loop or wake task. Actual logon execution, service/driver recovery, taskbar/tray interaction and physical lighting still require hardware validation.
+v0.3.4 avoids interrupting an existing GCC session during initialization. It observes natural connection before recovery, with a 38-second observation budget and a full identity/component recheck. The 25-second logon trigger is unchanged. Disable and re-enable enrollment with the new version to update the protected logon executable. No resident loop or wake task is added; subsequent logon and physical color synchronization timing still require hardware validation.
 
 Requires .NET Framework 4.8. The UI is Simplified Chinese. The first scan needs no elevation; system changes request administrator rights. Binaries are unsigned; release checksums are provided.
 

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using CorsairTakeover;
 
 internal sealed class FakeStartupBackend : IStartupBackend {
@@ -11,7 +12,11 @@ internal sealed class FakeStartupBackend : IStartupBackend {
     public StartupTask Task;
     public OperationResult Result;
     public Snapshot Current = StartupTests.Sample();
-    public int Connects, Registers, Removes, Saves, Scans;
+    public Snapshot ConnectionBaseline;
+    public readonly Queue<Snapshot> Observations=new Queue<Snapshot>();
+    public readonly Queue<Snapshot> ScanResults=new Queue<Snapshot>();
+    public TimeSpan Elapsed { get; private set; }
+    public int Connects, Registers, Removes, Saves, Scans, Reads, Waits;
     public bool CorruptHash, FailRegister, FailRemove, FailConnect, FailRead, FailResult, FailEnabledSave, CorruptTask, MissingInstalled, FailResultRead;
     public void Prepare() { }
     public StartupEnrollment Load() { return State==null?null:Json.Read<StartupEnrollment>(Json.Write(State)); }
@@ -26,8 +31,10 @@ internal sealed class FakeStartupBackend : IStartupBackend {
         if(MissingInstalled) throw new FileNotFoundException("synthetic missing installed executable");
     }
     public void Install(string source,string destination,string hash) { }
-    public Snapshot Scan() { Scans++; if(FailRead) throw new IOException("synthetic scan failure"); return Current; }
-    public string Connect(Snapshot snapshot) { Connects++; if(FailConnect) throw new IOException("synthetic connection failure"); return "synthetic connection confirmed"; }
+    public Snapshot Scan() { Scans++; if(FailRead) throw new IOException("synthetic scan failure"); return ScanResults.Count>0?ScanResults.Dequeue():Current; }
+    public Snapshot Observe(Snapshot baseline) { Reads++; return Observations.Count>0?Observations.Dequeue():Current; }
+    public void Wait(TimeSpan delay) { Waits++; Elapsed+=delay; }
+    public string Connect(Snapshot snapshot) { Connects++; ConnectionBaseline=snapshot; if(FailConnect) throw new IOException("synthetic connection failure"); return "synthetic connection confirmed"; }
     public StartupTask ReadTask() { if(FailRead) throw new IOException("synthetic task read failure"); return Task; }
     public void RegisterTask(StartupEnrollment state) {
         Registers++;
@@ -61,6 +68,78 @@ public static class StartupTests {
         StartupConnection.Enable(backend.Current.Fingerprint,backend);
         backend.Executable=backend.State.InstalledExe;
         return backend;
+    }
+    static Snapshot Initializing(bool connected=false) {
+        var snapshot=Sample();
+        snapshot.BootUtc="2000-01-01T12:08:06Z";
+        snapshot.GccPid=8228;
+        snapshot.GccStartUtc="2000-01-01T12:08:39Z";
+        snapshot.Evidence=new LogEvidence { CurrentSession=true,Connected=connected,Modules=connected?2:0,SessionUtc="2000-01-01T12:08:39Z" };
+        return snapshot;
+    }
+    static void InitializationTests() {
+        // Synthetic times preserve the reported order: task at 12:08:41, native registration at 12:08:45.
+        var timeline=Enabled(); timeline.Current=Initializing();
+        for(int index=0;index<8;index++) timeline.Observations.Enqueue(Initializing());
+        timeline.Observations.Enqueue(Initializing(true));
+        timeline.ScanResults.Enqueue(timeline.Current); timeline.ScanResults.Enqueue(Initializing(true));
+        Assert(StartupConnection.Run(timeline)==0 && timeline.Connects==0 && timeline.Result.Success,"native startup finishes four seconds after the initial scan without recovery");
+        Assert(timeline.Elapsed==TimeSpan.FromSeconds(4) && timeline.Waits==8 && timeline.Scans==3,"startup observes lightly and performs a fresh full verification before natural success");
+        var fault=Enabled(); fault.Current=Initializing(); fault.Current.Evidence.PipeErrors=1;
+        Assert(StartupConnection.Run(fault)==0 && fault.Connects==1 && fault.Reads==0 && fault.Waits==0,"explicit initial communication fault takes the original single recovery immediately");
+        var writeFault=Enabled(); writeFault.Current=Initializing(); writeFault.Current.Evidence.InstalledWriteFailures=1;
+        Assert(StartupConnection.Run(writeFault)==0 && writeFault.Connects==1 && writeFault.Waits==0,"explicit initial installed-memory fault does not spend initialization grace");
+        var expired=Enabled(); expired.Current=Initializing(); var fresh=Initializing();
+        expired.ScanResults.Enqueue(expired.Current); expired.ScanResults.Enqueue(fresh);
+        Assert(StartupConnection.Run(expired)==0 && expired.Elapsed==TimeSpan.FromSeconds(38) && expired.Connects==1,"unconfirmed stable initialization has one fixed deadline then one recovery");
+        Assert(Object.ReferenceEquals(expired.ConnectionBaseline,fresh) && expired.Scans==3,"timeout recovery receives the fresh scan instead of the original startup baseline");
+        var boundary=Enabled(); boundary.Current=Initializing();
+        boundary.ScanResults.Enqueue(boundary.Current); boundary.ScanResults.Enqueue(Initializing(true));
+        Assert(StartupConnection.Run(boundary)==0 && boundary.Elapsed==TimeSpan.FromSeconds(38) && boundary.Connects==0,"connection confirmed by the deadline full scan avoids recovery");
+        var changed=Enabled(); changed.Current=Initializing(); var replacement=Initializing(); replacement.GccPid++;
+        changed.Observations.Enqueue(replacement);
+        Assert(StartupConnection.Run(changed)!=0 && changed.Connects==0 && changed.Waits==0 && !changed.Result.Success,"GCC process replacement during startup fails without recovery or budget reset");
+        var reused=Enabled(); reused.Current=Initializing(); var newCreation=Initializing(); newCreation.GccStartUtc="2000-01-01T12:08:42Z";
+        reused.Observations.Enqueue(newCreation);
+        Assert(StartupConnection.Run(reused)!=0 && reused.Connects==0,"GCC PID reuse with changed creation time cannot inherit startup evidence");
+        var vanished=Enabled(); vanished.Current=Initializing(); var absent=Initializing(); absent.GccPid=0; absent.GccStartUtc=null;
+        vanished.Observations.Enqueue(absent);
+        Assert(StartupConnection.Run(vanished)!=0 && vanished.Connects==0,"GCC disappearance during initialization cannot trigger recovery with old identity");
+        var unreadable=Enabled(); unreadable.Current=Initializing(); var readError=Initializing(); readError.Errors.Add("synthetic initialization read failure");
+        unreadable.Observations.Enqueue(readError);
+        Assert(StartupConnection.Run(unreadable)!=0 && unreadable.Connects==0 && unreadable.Waits==0,"initialization read errors fail immediately without a destructive fallback");
+        var ownership=Enabled(); ownership.Current=Initializing(); var conflict=Initializing(); conflict.Evidence.Note="synthetic another controller";
+        ownership.Observations.Enqueue(conflict);
+        Assert(StartupConnection.Run(ownership)!=0 && ownership.Connects==0,"uncertain controller ownership during startup cannot claim or recover the session");
+        var initialConflict=Enabled(); initialConflict.Current=Initializing(); initialConflict.Current.Evidence.Note="synthetic another controller"; initialConflict.Current.Evidence.PipeErrors=1;
+        Assert(StartupConnection.Run(initialConflict)!=0 && initialConflict.Connects==0 && initialConflict.Waits==0,"initial ownership conflict prevents recovery even when communication errors also exist");
+        var newFault=Enabled(); newFault.Current=Initializing(); var faultObservation=Initializing(); faultObservation.Evidence.PipeErrors=1;
+        newFault.Observations.Enqueue(faultObservation);
+        Assert(StartupConnection.Run(newFault)!=0 && newFault.Connects==0,"new communication failure during the observed session remains an explicit failed run");
+        var drift=Enabled(); drift.Current=Initializing(); drift.Observations.Enqueue(Initializing(true));
+        var changedComponents=Initializing(true); changedComponents.Fingerprint=new string('2',64);
+        drift.ScanResults.Enqueue(drift.Current); drift.ScanResults.Enqueue(changedComponents);
+        Assert(StartupConnection.Run(drift)!=0 && drift.Connects==0,"natural success cannot bypass component fingerprint verification");
+        var finalProcess=Enabled(); finalProcess.Current=Initializing(); finalProcess.Observations.Enqueue(Initializing(true));
+        var replacedFinal=Initializing(true); replacedFinal.GccPid++;
+        finalProcess.ScanResults.Enqueue(finalProcess.Current); finalProcess.ScanResults.Enqueue(replacedFinal);
+        Assert(StartupConnection.Run(finalProcess)!=0 && finalProcess.Connects==0,"natural success requires the same process in the final full scan");
+        var lostConnection=Enabled(); lostConnection.Current=Initializing(); lostConnection.Observations.Enqueue(Initializing(true));
+        lostConnection.ScanResults.Enqueue(lostConnection.Current); lostConnection.ScanResults.Enqueue(Initializing());
+        Assert(StartupConnection.Run(lostConnection)!=0 && lostConnection.Connects==0,"connection lost during natural-success verification is an explicit failure without recovery");
+        var unsupported=Enabled(); unsupported.Current=Initializing(); unsupported.Observations.Enqueue(Initializing(true));
+        var blockedFinal=Initializing(true); blockedFinal.IcueRunning=true;
+        unsupported.ScanResults.Enqueue(unsupported.Current); unsupported.ScanResults.Enqueue(blockedFinal);
+        Assert(StartupConnection.Run(unsupported)!=0 && unsupported.Connects==0,"natural success repeats the supported-environment guard");
+        var stale=Enabled(); stale.Current=Initializing(); var oldLog=Initializing(true); oldLog.Evidence.SessionUtc="1999-01-01T00:00:00Z";
+        stale.Observations.Enqueue(oldLog);
+        Assert(StartupConnection.Run(stale)==0 && stale.Connects==1 && stale.Elapsed==TimeSpan.FromSeconds(38),"old log timestamps cannot end initialization observation as success");
+        var deadlineChange=Enabled(); deadlineChange.Current=Initializing();
+        deadlineChange.ScanResults.Enqueue(deadlineChange.Current); deadlineChange.ScanResults.Enqueue(replacement);
+        Assert(StartupConnection.Run(deadlineChange)!=0 && deadlineChange.Connects==0 && deadlineChange.Elapsed==TimeSpan.FromSeconds(38),"deadline full scan rejects changed process before any recovery");
+        var deadlineDrift=Enabled(); deadlineDrift.Current=Initializing();
+        deadlineDrift.ScanResults.Enqueue(deadlineDrift.Current); deadlineDrift.ScanResults.Enqueue(changedComponents);
+        Assert(StartupConnection.Run(deadlineDrift)!=0 && deadlineDrift.Connects==0,"deadline full scan rejects component drift before any recovery");
     }
     public static int Main() {
         try { Run(); return 0; } catch(Exception ex) { Console.Error.WriteLine(ex); return 1; }
@@ -182,6 +261,7 @@ public static class StartupTests {
         Assert(StartupConnection.ReadStatus(orphan).CanDisable,"owned orphan task can be removed");
         StartupConnection.Disable(orphan);
         Assert(orphan.Task==null,"orphan task removed without original enrollment");
+        InitializationTests();
         Console.WriteLine("Startup synthetic checks passed: "+checks);
     }
 }

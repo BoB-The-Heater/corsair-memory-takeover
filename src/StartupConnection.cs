@@ -40,6 +40,9 @@ namespace CorsairTakeover {
         void VerifyFile(string path);
         void Install(string source,string destination,string hash);
         Snapshot Scan();
+        Snapshot Observe(Snapshot baseline);
+        TimeSpan Elapsed { get; }
+        void Wait(TimeSpan delay);
         string Connect(Snapshot snapshot);
         StartupTask ReadTask();
         void RegisterTask(StartupEnrollment state);
@@ -210,6 +213,37 @@ namespace CorsairTakeover {
         static bool StatusReadFailure(Exception failure) {
             return failure is IOException || failure is UnauthorizedAccessException || failure is InvalidOperationException || failure is ArgumentException;
         }
+        static void CheckStartupSnapshot(Snapshot snapshot,StartupEnrollment state) {
+            if(snapshot.Fingerprint!=state.Fingerprint) throw new InvalidOperationException("组件基线已变化，自动连接已停止，请关闭后重新检测并开启。");
+            string blocked=GigabyteRecovery.ConnectionBlockReason(snapshot);
+            if(blocked!=null) throw new InvalidOperationException(blocked);
+            if(!String.IsNullOrEmpty(snapshot.Evidence.Note)) throw new InvalidOperationException("登录连接会话归属不明确："+snapshot.Evidence.Note);
+        }
+        static void CheckStartupProcess(Snapshot baseline,Snapshot current) {
+            if(baseline.GccPid<=0 || current.GccPid!=baseline.GccPid || String.IsNullOrEmpty(baseline.GccStartUtc) || current.GccStartUtc!=baseline.GccStartUtc)
+                throw new InvalidOperationException("GCC 进程在登录初始化期间改变或退出，已结束本次自动连接。");
+        }
+        static Snapshot ObserveInitialization(Snapshot baseline,StartupEnrollment state,IStartupBackend backend) {
+            CheckStartupProcess(baseline,baseline);
+            GigabyteRecovery.CheckObservation(baseline);
+            TimeSpan started=backend.Elapsed;
+            bool connected=false;
+            while(backend.Elapsed-started<GigabyteRecovery.ConfirmationTimeout) {
+                Snapshot current=backend.Observe(baseline);
+                GigabyteRecovery.CheckObservation(current);
+                CheckStartupProcess(baseline,current);
+                if(GigabyteRecovery.IsConnected(current)) { connected=true; break; }
+                TimeSpan remaining=GigabyteRecovery.ConfirmationTimeout-(backend.Elapsed-started);
+                if(remaining>TimeSpan.Zero) backend.Wait(remaining<TimeSpan.FromMilliseconds(500)?remaining:TimeSpan.FromMilliseconds(500));
+            }
+            Snapshot verified=backend.Scan();
+            CheckStartupSnapshot(verified,state);
+            CheckStartupProcess(baseline,verified);
+            GigabyteRecovery.CheckObservation(verified);
+            if(connected && !GigabyteRecovery.IsConnected(verified))
+                throw new InvalidOperationException("登录初始化后的完整检测未能确认同一连接会话，已结束本次自动连接。");
+            return verified;
+        }
         internal static string Execute(IStartupBackend backend) {
             var state=backend.Load();
             if(state==null) throw new InvalidOperationException("没有当前用户的登录自动连接授权。");
@@ -222,10 +256,12 @@ namespace CorsairTakeover {
             if(task==null) throw new InvalidOperationException("登录自动连接任务已不存在。");
             ValidateTask(task,state,backend.Sid,backend.Root);
             Snapshot snapshot=backend.Scan();
-            if(snapshot.Fingerprint!=state.Fingerprint) throw new InvalidOperationException("组件基线已变化，自动连接已停止，请关闭后重新检测并开启。");
-            string blocked=GigabyteRecovery.ConnectionBlockReason(snapshot);
-            if(blocked!=null) throw new InvalidOperationException(blocked);
+            CheckStartupSnapshot(snapshot,state);
             if(GigabyteRecovery.IsConnected(snapshot)) return "当前连接已确认，未执行恢复。";
+            if(snapshot.GccPid>0 && snapshot.Evidence.PipeErrors==0 && snapshot.Evidence.InstalledWriteFailures==0) {
+                snapshot=ObserveInitialization(snapshot,state,backend);
+                if(GigabyteRecovery.IsConnected(snapshot)) return "已确认当前 GCC 会话自然完成内存连接，未执行恢复。";
+            }
             return backend.Connect(snapshot);
         }
         internal static int Run(IStartupBackend backend) {
@@ -288,6 +324,7 @@ namespace CorsairTakeover {
         internal static void Release(object value) { if(value!=null && Marshal.IsComObject(value)) Marshal.ReleaseComObject(value); }
     }
     internal sealed class WindowsStartupBackend : IStartupBackend {
+        readonly System.Diagnostics.Stopwatch clock=System.Diagnostics.Stopwatch.StartNew();
         public string Sid { get { return StateStore.Sid; } }
         public string Root { get { return StateStore.Root; } }
         public string CurrentExe { get { return Assembly.GetExecutingAssembly().Location; } }
@@ -297,6 +334,9 @@ namespace CorsairTakeover {
         public void Prepare() { StateStore.Prepare(); }
         public string Hash(string path) { return Probe.Hash(path); }
         public Snapshot Scan() { return Probe.Scan(); }
+        public Snapshot Observe(Snapshot baseline) { return Probe.ObserveGccConnection(baseline); }
+        public TimeSpan Elapsed { get { return clock.Elapsed; } }
+        public void Wait(TimeSpan delay) { Thread.Sleep(delay); }
         public string Connect(Snapshot snapshot) { return GigabyteRecovery.Connect(snapshot); }
         static void CheckAcl(FileSystemSecurity security) {
             string owner=((SecurityIdentifier)security.GetOwner(typeof(SecurityIdentifier))).Value;

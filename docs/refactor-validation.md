@@ -130,7 +130,31 @@
 
 本机登记状态与实际重启登录需另列证据；上述只读、合成与离屏检查不证明已启用或硬件恢复成功。当前会话非管理员，未自行触发 UAC 或真实服务/驱动启停。真实跨账户 UAC、登录触发、硬件恢复耗时及实体灯效未验证。
 
+### 本机登记读回（2026-11-14，Asia/Shanghai）
+
+用户明确允许一次管理员授权并登记后，11:49 使用同一 v0.3.3 最终 EXE 完成登记，退出码 0，操作结果 Success=true。本次只登记，没有启动登录任务、连接内存、重启 GCC 或操作服务/驱动。
+
+已重新读取真实任务、配置和受保护程序：配置启用；程序版本 0.3.3-preview、哈希与上述交付一致；Principal 和登录触发器均对应当前用户；单一登录触发器延迟 PT25S、单一动作 `--startup-connect`、最高权限交互令牌、IgnoreNew、RestartCount=0、ExecutionTimeLimit=PT5M。任务处于就绪，尚无登录执行结果。另以最终发布程序集调用实际 `StartupConnection.ReadStatus()`，返回 Enabled=true、CanDisable=true、LastResult=null。
+
+独立 PowerShell 读回最初直接用账户文本与 SID 比较，触发检查失败；按系统账户解析为 SID 后确认一致。生产程序集已包含相同的账户解析，其状态读回通过，不需要修改或重建代码。登记证据仅证明配置生效；真实重启登录、连接恢复及实体灯效仍未验证。
+
 接口依据：[TaskFolder.RegisterTaskDefinition](https://learn.microsoft.com/en-us/windows/win32/taskschd/taskfolder-registertaskdefinition)、[Task Scheduler 安全上下文](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks)、[UAC 身份与凭据提示](https://learn.microsoft.com/windows/security/identity-protection/user-account-control/how-user-account-control-works)。
+
+## v0.3.4 登录初始化冲突修复
+
+2026-11-15 用户反馈开机约一分钟才正确同步颜色。只读取得的上次运行证据：登录桌面进程约12:08:16启动，助手任务12:08:41启动；厂商设备服务12:08:38开始，初始GCC客户端12:08:39连接。助手12:08:42进入恢复，服务12:08:43记录停止，初始化的模块检测与注册仍在12:08:44–45进行。系统12:09:13记录SCM 7011、等待响应30000毫秒超时；助手12:09:43记录停止服务失败并退出1，同一时刻GCC重新启动，12:09:57新会话完成注册。这证明助手打断了正在初始化的链路并遭遇服务超时；不能证明未打断时实体颜色必定在某秒同步，也不能精确分摊没有阶段计时的所有调用。
+
+修复只改变登录恢复的决策：初始扫描已经健康直接退出；已有GCC且没有明确错误时，用现有轻量观察入口等待自然连接，固定原进程PID和创建时间，单一38秒单调预算。自然连接完成和预算到期均进行完整扫描、组件指纹/适配条件/同一进程复核。成功时零恢复，到期仍未连通才用新扫描至多恢复一次；初始化期间读数、归属、进程或新会话错误明确失败，不用旧基线强制恢复。保留任务25秒登录延迟和手动连接原行为。
+
+本轮验证选择本地：后端代理先以合成时序复现立即恢复的问题，再执行 `run-tests.ps1 -Suite startup`，90项通过（原69项与新增21项）。代表性fixture的初始扫描未连接，4秒后自然完成，新路径8次500毫秒等待后完整复核成功，Connect调用0次；这是程序分支证据，不是实机提速测量。覆盖超时重扫、边界成功、PID复用/退出、读取失败、归属变化、指纹变化和至多一次恢复。已有未变的UI、偏好、手动连接、规则和采集证据复用，不重复全套测试或云CI。
+
+独立只读审查未发现新增P1/P2；系统编译器构建通过，`git diff --check` 通过。最终EXE版本0.3.4-preview、173056 bytes（169 KiB），SHA-256 `C2B4A547C11037CD5C0E6899917F1485F50090FDB348DFD3A32E698070B2B6C4`，比0.3.3增加1024 bytes。调用最终程序集的真实状态读取成功，读到了仍登记的旧版任务及上次服务停止失败结果；这不代表新版已部署。
+
+交付包 `CorsairMemoryTakeover-v0.3.4-win-x64.zip` 为85849 bytes，SHA-256 `EBA2F9EACB023D8314C72F7265254FAC2669778D36C1981EEDE39FA6146F8663`。四项EXE/GUIDE/LICENSE/校验文件已逐项核对，归档内EXE哈希与构建相同。无原始本机报告、安装记录或身份字段进入发行包。更新本机受保护程序需要一次新管理员授权；已准备只替换本工具登记、不立即执行连接的更新步骤，实际部署结果另行核实。
+
+已知代价：没有明确错误但真正卡住的会话最多增加38秒观察，之后的原恢复另计服务请求、状态等待和会话确认时间。Windows服务控制调用自身可阻塞，不能把12秒状态等待或38秒会话确认说成整次操作的总上限。没有改变系统服务超时、厂商启动设置或驱动启动类型，没有新增依赖、常驻进程或运行时模型请求。下一次真实登录、实体颜色同步时间仍待验证。
+
+依据：[Windows ControlService 的串行控制与超时](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/nf-winsvc-controlservice)。原始本机证据只保存在忽略目录 `dist/startup-latency-baseline.json`，不发布私人机器信息。
 
 ## 一手接口依据（链接）
 
