@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -223,26 +224,42 @@ namespace CorsairTakeover {
             if(baseline.GccPid<=0 || current.GccPid!=baseline.GccPid || String.IsNullOrEmpty(baseline.GccStartUtc) || current.GccStartUtc!=baseline.GccStartUtc)
                 throw new InvalidOperationException("GCC 进程在登录初始化期间改变或退出，已结束本次自动连接。");
         }
+        static void CheckStartupObservation(Snapshot baseline,Snapshot current) {
+            GigabyteRecovery.CheckEnvironment(current);
+            if(!String.IsNullOrEmpty(current.Evidence.Note)) throw new InvalidOperationException("登录连接会话归属不明确："+current.Evidence.Note);
+            CheckStartupProcess(baseline,current);
+        }
+        static bool CurrentSessionFault(Snapshot snapshot) {
+            if(!snapshot.Evidence.CurrentSession || (snapshot.Evidence.InstalledWriteFailures<=0 && snapshot.Evidence.PipeErrors<=0)) return false;
+            DateTime boot,start,session;
+            if(!DateTime.TryParse(snapshot.BootUtc,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out boot) || boot.Kind!=DateTimeKind.Utc ||
+                !DateTime.TryParse(snapshot.GccStartUtc,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out start) || start.Kind!=DateTimeKind.Utc ||
+                !DateTime.TryParse(snapshot.Evidence.SessionUtc,CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out session) || session.Kind!=DateTimeKind.Utc || start<boot)
+                return false;
+            return session>=boot.AddTicks(-(boot.Ticks%TimeSpan.TicksPerSecond)) && session>=start.AddTicks(-(start.Ticks%TimeSpan.TicksPerSecond));
+        }
         static Snapshot ObserveInitialization(Snapshot baseline,StartupEnrollment state,IStartupBackend backend) {
-            CheckStartupProcess(baseline,baseline);
-            GigabyteRecovery.CheckObservation(baseline);
+            CheckStartupObservation(baseline,baseline);
             TimeSpan started=backend.Elapsed;
-            bool connected=false;
             while(backend.Elapsed-started<GigabyteRecovery.ConfirmationTimeout) {
                 Snapshot current=backend.Observe(baseline);
-                GigabyteRecovery.CheckObservation(current);
-                CheckStartupProcess(baseline,current);
-                if(GigabyteRecovery.IsConnected(current)) { connected=true; break; }
+                CheckStartupObservation(baseline,current);
+                bool connected=GigabyteRecovery.IsConnected(current);
+                if(connected || (current.DcsState=="Stopped" && CurrentSessionFault(current))) {
+                    Snapshot verified=backend.Scan();
+                    CheckStartupSnapshot(verified,state);
+                    CheckStartupProcess(baseline,verified);
+                    if(connected && !GigabyteRecovery.IsConnected(verified))
+                        throw new InvalidOperationException("登录初始化后的完整检测未能确认同一连接会话，已结束本次自动连接。");
+                    if(GigabyteRecovery.IsConnected(verified) || (verified.DcsState=="Stopped" && CurrentSessionFault(verified))) return verified;
+                }
                 TimeSpan remaining=GigabyteRecovery.ConfirmationTimeout-(backend.Elapsed-started);
                 if(remaining>TimeSpan.Zero) backend.Wait(remaining<TimeSpan.FromMilliseconds(500)?remaining:TimeSpan.FromMilliseconds(500));
             }
-            Snapshot verified=backend.Scan();
-            CheckStartupSnapshot(verified,state);
-            CheckStartupProcess(baseline,verified);
-            GigabyteRecovery.CheckObservation(verified);
-            if(connected && !GigabyteRecovery.IsConnected(verified))
-                throw new InvalidOperationException("登录初始化后的完整检测未能确认同一连接会话，已结束本次自动连接。");
-            return verified;
+            Snapshot final=backend.Scan();
+            CheckStartupSnapshot(final,state);
+            CheckStartupProcess(baseline,final);
+            return final;
         }
         internal static string Execute(IStartupBackend backend) {
             var state=backend.Load();
@@ -258,7 +275,7 @@ namespace CorsairTakeover {
             Snapshot snapshot=backend.Scan();
             CheckStartupSnapshot(snapshot,state);
             if(GigabyteRecovery.IsConnected(snapshot)) return "当前连接已确认，未执行恢复。";
-            if(snapshot.GccPid>0 && snapshot.Evidence.PipeErrors==0 && snapshot.Evidence.InstalledWriteFailures==0) {
+            if(snapshot.GccPid>0) {
                 snapshot=ObserveInitialization(snapshot,state,backend);
                 if(GigabyteRecovery.IsConnected(snapshot)) return "已确认当前 GCC 会话自然完成内存连接，未执行恢复。";
             }

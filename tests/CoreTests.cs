@@ -167,6 +167,19 @@ public static class Tests {
         try { WindowsGigabyteConnection.StopAndWait(()=>requests++,()=>{ throw new System.TimeoutException("fixture stop wait"); },ref touched); }
         catch(System.TimeoutException) { failed=true; }
         Assert(failed && touched && requests==1,"accepted stop remains recorded when status waiting fails so rollback includes it");
+        var stopped=GccConnection(42,false); stopped.DcsState="Stopped";
+        foreach(string nextState in new[]{"Running","StartPending","StopPending"}) {
+            sample=GccConnection(42,false); sample.DcsState=nextState;
+            failed=false; try { WindowsGigabyteConnection.CheckRestartState(stopped,sample); } catch(InvalidOperationException) { failed=true; }
+            Assert(failed,"stopped recovery baseline rejects a fresh "+nextState+" service before any stop request");
+        }
+        WindowsGigabyteConnection.CheckRestartState(stopped,stopped);
+        Assert(true,"unchanged stopped service remains eligible for the existing recovery");
+        sample=GccConnection(42,false); sample.Errors.Add("synthetic execution-time read failure");
+        failed=false; try { WindowsGigabyteConnection.CheckRestartState(stopped,sample); } catch(InvalidOperationException) { failed=true; }
+        Assert(failed,"execution-time read failure still blocks recovery");
+        WindowsGigabyteConnection.CheckRestartState(initial,initial);
+        Assert(true,"running baseline retains the existing bounded recovery contract");
         DateTime boot=DateTime.Parse("2000-01-01T01:00:00Z").ToUniversalTime();
         string connected=Session(42,"");
         var rotated=LogParser.Parse(new[]{connected,"2000-01-01 01:01:04 W svc.server.json: Error writing reply to client \"GCC.exe\" ( \"\\\\.\\pipe\\:pid:42\\{test}\" )"},42,boot,boot);

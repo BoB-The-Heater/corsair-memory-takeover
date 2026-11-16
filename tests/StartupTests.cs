@@ -77,6 +77,18 @@ public static class StartupTests {
         snapshot.Evidence=new LogEvidence { CurrentSession=true,Connected=connected,Modules=connected?2:0,SessionUtc="2000-01-01T12:08:39Z" };
         return snapshot;
     }
+    static Snapshot Faulted(string serviceState) {
+        var snapshot=Initializing();
+        snapshot.DcsState=serviceState;
+        snapshot.Evidence.InstalledWriteFailures=1;
+        return snapshot;
+    }
+    static void RejectStoppedVerification(Snapshot verified,string message) {
+        var backend=Enabled(); backend.Current=Initializing();
+        backend.Observations.Enqueue(Faulted("Stopped"));
+        backend.ScanResults.Enqueue(backend.Current); backend.ScanResults.Enqueue(verified);
+        Assert(StartupConnection.Run(backend)!=0 && backend.Connects==0 && backend.Elapsed==TimeSpan.Zero && !backend.Result.Success,message);
+    }
     static void InitializationTests() {
         // Synthetic times preserve the reported order: task at 12:08:41, native registration at 12:08:45.
         var timeline=Enabled(); timeline.Current=Initializing();
@@ -85,10 +97,65 @@ public static class StartupTests {
         timeline.ScanResults.Enqueue(timeline.Current); timeline.ScanResults.Enqueue(Initializing(true));
         Assert(StartupConnection.Run(timeline)==0 && timeline.Connects==0 && timeline.Result.Success,"native startup finishes four seconds after the initial scan without recovery");
         Assert(timeline.Elapsed==TimeSpan.FromSeconds(4) && timeline.Waits==8 && timeline.Scans==3,"startup observes lightly and performs a fresh full verification before natural success");
+        var serviceFailure=Enabled(); serviceFailure.Current=Initializing();
+        serviceFailure.Observations.Enqueue(Faulted("Running"));
+        var stopping=Faulted("StopPending"); stopping.Evidence.PipeErrors=1;
+        serviceFailure.Observations.Enqueue(stopping);
+        var stopped=Faulted("Stopped"); stopped.Evidence.PipeErrors=1;
+        serviceFailure.Observations.Enqueue(stopped);
+        serviceFailure.ScanResults.Enqueue(serviceFailure.Current); serviceFailure.ScanResults.Enqueue(stopped);
+        Assert(StartupConnection.Run(serviceFailure)==0 && serviceFailure.Connects==1 && serviceFailure.Result.Success,"write failure followed by pipe closure and native service stop reaches one recovery");
+        Assert(serviceFailure.Elapsed==TimeSpan.FromSeconds(1) && serviceFailure.Reads==3 && Object.ReferenceEquals(serviceFailure.ConnectionBaseline,stopped),"initialization waits through running and stop-pending faults and recovers only after full stopped verification");
         var fault=Enabled(); fault.Current=Initializing(); fault.Current.Evidence.PipeErrors=1;
-        Assert(StartupConnection.Run(fault)==0 && fault.Connects==1 && fault.Reads==0 && fault.Waits==0,"explicit initial communication fault takes the original single recovery immediately");
+        Assert(StartupConnection.Run(fault)==0 && fault.Connects==1 && fault.Elapsed==TimeSpan.FromSeconds(38),"initial communication fault with a running service spends the original observation budget before one recovery");
         var writeFault=Enabled(); writeFault.Current=Initializing(); writeFault.Current.Evidence.InstalledWriteFailures=1;
-        Assert(StartupConnection.Run(writeFault)==0 && writeFault.Connects==1 && writeFault.Waits==0,"explicit initial installed-memory fault does not spend initialization grace");
+        Assert(StartupConnection.Run(writeFault)==0 && writeFault.Connects==1 && writeFault.Elapsed==TimeSpan.FromSeconds(38),"initial installed-memory fault cannot interrupt a running service before the deadline");
+        var initialStopped=Enabled(); initialStopped.Current=Faulted("Stopped"); var verifiedStopped=Faulted("Stopped");
+        initialStopped.ScanResults.Enqueue(initialStopped.Current); initialStopped.ScanResults.Enqueue(verifiedStopped);
+        Assert(StartupConnection.Run(initialStopped)==0 && initialStopped.Connects==1 && initialStopped.Waits==0 && initialStopped.Reads==1 && Object.ReferenceEquals(initialStopped.ConnectionBaseline,verifiedStopped),"initial fault with stopped service still requires a fresh matching full scan before one recovery");
+        var naturalAfterFault=Enabled(); naturalAfterFault.Current=Faulted("Running");
+        naturalAfterFault.Observations.Enqueue(Faulted("Running")); naturalAfterFault.Observations.Enqueue(Initializing(true));
+        naturalAfterFault.ScanResults.Enqueue(naturalAfterFault.Current); naturalAfterFault.ScanResults.Enqueue(Initializing(true));
+        Assert(StartupConnection.Run(naturalAfterFault)==0 && naturalAfterFault.Connects==0 && naturalAfterFault.Elapsed==TimeSpan.FromMilliseconds(500),"initial fault may clear through a naturally established connection without recovery");
+        var resumed=Enabled(); resumed.Current=Faulted("Running");
+        for(int index=0;index<4;index++) resumed.Observations.Enqueue(Faulted("Running"));
+        resumed.Observations.Enqueue(Faulted("Stopped"));
+        var runningAgain=Faulted("Running"); var finalRunning=Faulted("Running");
+        resumed.ScanResults.Enqueue(resumed.Current); resumed.ScanResults.Enqueue(runningAgain); resumed.ScanResults.Enqueue(finalRunning);
+        Assert(StartupConnection.Run(resumed)==0 && resumed.Connects==1 && resumed.Elapsed==TimeSpan.FromSeconds(38) && resumed.Waits==76,"service running again in the stopped-fault full scan continues the same observation deadline");
+        Assert(resumed.Scans==4 && Object.ReferenceEquals(resumed.ConnectionBaseline,finalRunning),"resumed observation supplies the deadline full scan to the sole recovery");
+        var stoppedWithoutFault=Enabled(); stoppedWithoutFault.Current=Initializing(); stoppedWithoutFault.Current.DcsState="Stopped";
+        Assert(StartupConnection.Run(stoppedWithoutFault)==0 && stoppedWithoutFault.Connects==1 && stoppedWithoutFault.Elapsed==TimeSpan.FromSeconds(38),"stopped service alone cannot permit recovery before the deadline");
+        var staleFault=Enabled(); staleFault.Current=Faulted("Stopped"); staleFault.Current.Evidence.SessionUtc="1999-01-01T00:00:00Z";
+        Assert(StartupConnection.Run(staleFault)==0 && staleFault.Connects==1 && staleFault.Elapsed==TimeSpan.FromSeconds(38) && staleFault.Scans==3,"old-session fault cannot permit early stopped-service recovery");
+        var unattributedFault=Enabled(); unattributedFault.Current=Faulted("Stopped"); unattributedFault.Current.Evidence.CurrentSession=false;
+        Assert(StartupConnection.Run(unattributedFault)==0 && unattributedFault.Connects==1 && unattributedFault.Elapsed==TimeSpan.FromSeconds(38),"unattributed fault cannot permit early stopped-service recovery");
+        var unverifiedFault=Enabled(); unverifiedFault.Current=Faulted("Running");
+        unverifiedFault.Observations.Enqueue(Faulted("Stopped"));
+        var oldStopped=Faulted("Stopped"); oldStopped.Evidence.SessionUtc="1999-01-01T00:00:00Z";
+        unverifiedFault.ScanResults.Enqueue(unverifiedFault.Current); unverifiedFault.ScanResults.Enqueue(oldStopped); unverifiedFault.ScanResults.Enqueue(finalRunning);
+        Assert(StartupConnection.Run(unverifiedFault)==0 && unverifiedFault.Connects==1 && unverifiedFault.Elapsed==TimeSpan.FromSeconds(38) && Object.ReferenceEquals(unverifiedFault.ConnectionBaseline,finalRunning),"full scan must independently confirm current-session fault before early recovery");
+        var failedRecovery=Enabled(); failedRecovery.Current=Faulted("Stopped"); failedRecovery.FailConnect=true;
+        Assert(StartupConnection.Run(failedRecovery)!=0 && failedRecovery.Connects==1 && !failedRecovery.Result.Success,"recovery failure after a verified native stop remains failed without retry");
+        var changedStopped=Faulted("Stopped"); changedStopped.Fingerprint=new string('2',64);
+        RejectStoppedVerification(changedStopped,"stopped-fault full scan rejects changed component baseline before recovery");
+        var foreignStopped=Faulted("Stopped"); foreignStopped.GccPid++;
+        RejectStoppedVerification(foreignStopped,"stopped-fault full scan rejects another GCC process before recovery");
+        var reusedStopped=Faulted("Stopped"); reusedStopped.GccStartUtc="2000-01-01T12:08:42Z";
+        RejectStoppedVerification(reusedStopped,"stopped-fault full scan rejects reused PID with another process start before recovery");
+        var incompleteStopped=Faulted("Stopped"); incompleteStopped.Errors.Add("synthetic full scan read failure");
+        RejectStoppedVerification(incompleteStopped,"stopped-fault full scan read failure prevents recovery");
+        var conflictStopped=Faulted("Stopped"); conflictStopped.Evidence.Note="synthetic foreign controller";
+        RejectStoppedVerification(conflictStopped,"stopped-fault full scan rejects ambiguous controller ownership");
+        var occupiedStopped=Faulted("Stopped"); occupiedStopped.IcueRunning=true;
+        RejectStoppedVerification(occupiedStopped,"stopped-fault full scan rejects iCUE occupation before recovery");
+        var unsupportedStopped=Faulted("Stopped"); unsupportedStopped.DcsVersion="unsupported";
+        RejectStoppedVerification(unsupportedStopped,"stopped-fault full scan repeats supported-component validation");
+        RejectStoppedVerification(Faulted("StopPending"),"stopped-fault full scan keeps the existing strict pending-service rejection");
+        var occupiedObservation=Enabled(); occupiedObservation.Current=Initializing();
+        var occupied=Faulted("Stopped"); occupied.IcueRunning=true;
+        occupiedObservation.Observations.Enqueue(occupied);
+        Assert(StartupConnection.Run(occupiedObservation)!=0 && occupiedObservation.Connects==0 && occupiedObservation.Scans==2 && occupiedObservation.Waits==0,"stopped-fault observation rejects iCUE before requesting an early full scan");
         var expired=Enabled(); expired.Current=Initializing(); var fresh=Initializing();
         expired.ScanResults.Enqueue(expired.Current); expired.ScanResults.Enqueue(fresh);
         Assert(StartupConnection.Run(expired)==0 && expired.Elapsed==TimeSpan.FromSeconds(38) && expired.Connects==1,"unconfirmed stable initialization has one fixed deadline then one recovery");
@@ -115,7 +182,14 @@ public static class StartupTests {
         Assert(StartupConnection.Run(initialConflict)!=0 && initialConflict.Connects==0 && initialConflict.Waits==0,"initial ownership conflict prevents recovery even when communication errors also exist");
         var newFault=Enabled(); newFault.Current=Initializing(); var faultObservation=Initializing(); faultObservation.Evidence.PipeErrors=1;
         newFault.Observations.Enqueue(faultObservation);
-        Assert(StartupConnection.Run(newFault)!=0 && newFault.Connects==0,"new communication failure during the observed session remains an explicit failed run");
+        Assert(StartupConnection.Run(newFault)==0 && newFault.Connects==1 && newFault.Elapsed==TimeSpan.FromSeconds(38),"new communication fault does not interrupt initialization and reaches only the existing deadline recovery");
+        var faultySuccess=Enabled(); faultySuccess.Current=Initializing();
+        var connectedWithFault=Initializing(true); connectedWithFault.Evidence.PipeErrors=1;
+        faultySuccess.Observations.Enqueue(connectedWithFault);
+        faultySuccess.ScanResults.Enqueue(faultySuccess.Current); faultySuccess.ScanResults.Enqueue(connectedWithFault);
+        Assert(StartupConnection.Run(faultySuccess)==0 && faultySuccess.Connects==1 && faultySuccess.Elapsed==TimeSpan.FromSeconds(38),"connected log carrying a communication fault cannot claim natural success");
+        Reject(()=>GigabyteRecovery.CheckObservation(connectedWithFault),"post-recovery new-session communication fault remains strictly rejected");
+        Reject(()=>GigabyteRecovery.CheckObservation(Faulted("Running")),"post-recovery new-session installed-memory fault remains strictly rejected");
         var drift=Enabled(); drift.Current=Initializing(); drift.Observations.Enqueue(Initializing(true));
         var changedComponents=Initializing(true); changedComponents.Fingerprint=new string('2',64);
         drift.ScanResults.Enqueue(drift.Current); drift.ScanResults.Enqueue(changedComponents);
@@ -127,6 +201,9 @@ public static class StartupTests {
         var lostConnection=Enabled(); lostConnection.Current=Initializing(); lostConnection.Observations.Enqueue(Initializing(true));
         lostConnection.ScanResults.Enqueue(lostConnection.Current); lostConnection.ScanResults.Enqueue(Initializing());
         Assert(StartupConnection.Run(lostConnection)!=0 && lostConnection.Connects==0,"connection lost during natural-success verification is an explicit failure without recovery");
+        var faultAfterSuccess=Enabled(); faultAfterSuccess.Current=Initializing(); faultAfterSuccess.Observations.Enqueue(Initializing(true));
+        faultAfterSuccess.ScanResults.Enqueue(faultAfterSuccess.Current); faultAfterSuccess.ScanResults.Enqueue(connectedWithFault);
+        Assert(StartupConnection.Run(faultAfterSuccess)!=0 && faultAfterSuccess.Connects==0 && !faultAfterSuccess.Result.Success,"new fault in natural-success full verification remains an explicit failure without recovery");
         var unsupported=Enabled(); unsupported.Current=Initializing(); unsupported.Observations.Enqueue(Initializing(true));
         var blockedFinal=Initializing(true); blockedFinal.IcueRunning=true;
         unsupported.ScanResults.Enqueue(unsupported.Current); unsupported.ScanResults.Enqueue(blockedFinal);

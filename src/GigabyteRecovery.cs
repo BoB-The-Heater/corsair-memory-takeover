@@ -124,9 +124,14 @@ namespace CorsairTakeover {
         public Snapshot Observe(Snapshot baseline) { return Probe.ObserveGccConnection(baseline); }
         public Snapshot Verify() { return Probe.Scan(); }
         public void Wait(TimeSpan delay) { Thread.Sleep(delay); }
+        internal static void CheckRestartState(Snapshot baseline,Snapshot current) {
+            GigabyteRecovery.CheckEnvironment(current);
+            if(baseline.DcsState=="Stopped" && current.DcsState!="Stopped")
+                throw new InvalidOperationException("设备服务在恢复前重新开始切换或运行，已停止本次连接，请重新检测。");
+        }
         public DateTime Restart(Snapshot baseline) {
             Snapshot current=Observe(baseline);
-            GigabyteRecovery.CheckEnvironment(current);
+            CheckRestartState(baseline,current);
             bool gccStopped=false,dcsStopped=false,driverStopped=false;
             try {
                 StopGcc(baseline,current,ref gccStopped);

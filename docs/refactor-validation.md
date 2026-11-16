@@ -156,6 +156,28 @@
 
 依据：[Windows ControlService 的串行控制与超时](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/nf-winsvc-controlservice)。原始本机证据只保存在忽略目录 `dist/startup-latency-baseline.json`，不发布私人机器信息。
 
+### 本机更新读回（2026-11-15，Asia/Shanghai）
+
+用户明确允许一次授权并更新后，12:22完成旧登记关闭及新版登记，更新步骤退出0、Success=true。随后独立读回实际任务和受保护程序：版本0.3.4-preview，程序哈希与本节交付完全一致，配置与任务Enabled=true，任务指向新程序，延迟仍PT25S，状态Ready。最终程序集真实ReadStatus也返回Enabled=true。任务没有被立即运行，GCC进程及创建时刻与更新前一致。上次12:09的失败记录仍保留为历史结果，不表示新版已经试跑。
+
+源码分支和v0.3.4标签对应 `be85f647db622d02f333d5e822ba9c1838b7a3d9`，已发布[GitHub预发行](https://github.com/BoB-The-Heater/corsair-memory-takeover/releases/tag/v0.3.4)。真实下次登录与实体颜色同步仍待用户正常开机后核验；本轮没有重启电脑、GCC、服务或驱动。
+
+## v0.3.5 登录故障后未恢复修复
+
+2026-11-16，用户报告开机又没有同步。本次真实登录任务在16:40:12执行，16:40:19.499因当前会话内存写入/通信错误退出1，未执行恢复。厂商日志随后记录管道关闭和客户端注销，设备服务16:40:21自行停止。缺口是v0.3.4启动观察复用了恢复后新会话的严格错误检查，遇到实际故障立即退出；初始已有错误则又可能绕过观察、过早干预初始化。
+
+本轮已有GCC且未连接时统一进入原有38秒观察期限。观察中的写入/管道故障保留为失败证据，只有当前会话明确故障且设备服务Stopped才提前完整重扫；指纹、支持组合、来源和进程均复核后，才交给一次既有恢复。重扫时服务已Running则继续原期限，不重新计时；恢复前已有重读若发现Stopped发生改变，在任何停止请求前退出。自然健康仍零恢复，读数/身份冲突与恢复后新会话错误仍失败。
+
+验证渠道为本地，未执行云CI：
+
+- 先新增“写入失败→管道关闭/StopPending→Stopped”合成时序，在旧实现得到退出1、遗漏恢复的失败断言。修复后的`run-tests.ps1 -Suite startup`退出0，114项通过，由后端代理执行并复用结果。覆盖初始/途中故障、停止前不恢复、重新Running不续期、旧会话无提前许可、完整重扫安全条件及至多一次恢复。
+- 主代理只运行受影响的`--gigabyte-tests`，35项通过，包含执行前Stopped转Running/StartPending/StopPending的拒绝、原恢复后新错误仍失败。未改动的UI、偏好、采集与其他品牌证据直接复用。
+- 系统编译器构建成功，`git diff --check`通过。最终EXE 0.3.5-preview为173568 bytes，比0.3.4增加512 bytes；SHA-256 `CC110BB75FCFC10D63AFAB88240C55EAABD6191626AB4F7FFA7E686EEF6999F2`。
+- 最终EXE隐藏执行真实只读`--scan`退出0，Errors=0，DCS=Stopped，同一当前会话保留2项已安装内存写入错误和1项管道错误。用最终程序集只读调用实际故障判断及状态入口，CurrentSessionFault=true、CanConnect=true、IsConnected=false，旧登记仍启用并保留本次16:40失败结果。没有调用Connect、启停服务/驱动或触发UAC。这验证了真实输入能被新分支识别，不证明实际恢复成功。
+- ZIP `CorsairMemoryTakeover-v0.3.5-win-x64.zip` 为84935 bytes，SHA-256 `4A172584CAFB2850FCBCCE90A4D8F4BACC9F63F2C1265C4623A491EDB936DF9E`。归档仅EXE、GUIDE、LICENSE和校验文件，逐项读回与本地产物一致；真实机器报告及临时探针未纳入。
+
+初始/完整扫描中服务或驱动Pending仍按原安全契约失败，本轮不扩展。38秒只是原观察预算，无法证明厂商内部初始化已完成；执行前重读能挡住已可见的状态变化，不提供SCM原子隔离。未新增运行时依赖、常驻、周期重试或模型请求。真实当前恢复、下次登录和实体颜色同步仍需分别核验。发布沿用此前用户GitHub交付授权；本机更新与立即验证的授权和结果另列，不将下载包当作已安装。
+
 ## 一手接口依据（链接）
 
 - [ServiceController.GetDevices](https://learn.microsoft.com/en-us/dotnet/api/system.serviceprocess.servicecontroller.getdevices?view=netframework-4.8)

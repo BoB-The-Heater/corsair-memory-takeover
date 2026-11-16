@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.5 (preview) — 2026-11-16
+
+- Fixed logon observation exiting on an installed-memory write or pipe error before the native service stopped, leaving no recovery attempt.
+- An existing GCC session remains under the same 38-second observation budget. A current-session fault followed by a confirmed stopped service can proceed to one recovery after a full recheck; a service that resumes running continues observation within the original deadline.
+- Refuse recovery before any stop request when an execution-time read shows a previously stopped service has started again. Read failures, identity changes, and errors in a recovered session still fail explicitly.
+- Retained the 25-second logon trigger, single recovery attempt, and no resident process. Update logon enrollment to use the fix; actual subsequent logon and physical lighting remain to be verified.
+
 ## 0.3.4 (preview) — 2026-11-15
 
 - Fixed logon recovery interrupting an existing GCC session while it was still initializing, which could cause service control timeouts and delay synchronization.
